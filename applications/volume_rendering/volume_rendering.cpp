@@ -17,14 +17,26 @@
 
 #include <holoscan/holoscan.hpp>
 #include <holoscan/operators/holoviz/holoviz.hpp>
+#include <holoscan/version_config.hpp>
 
 #include <string>
 
 #include <getopt.h>
 
+#include "json_loader.hpp"
 #include "volume_loader.hpp"
 #include "volume_renderer.hpp"
 
+#if (HOLOSCAN_VERSION_MAJOR < 1)
+// Holoscan prior version 1.0 does not support graphs with cycles. The cycle is created by
+// outputting the rendered frame from the volume renderer to Holoviz and outputting the camera pose
+// from Holoviz to the volume renderer. To break the cycle create a shared camera pose. The
+// SharedDataSourceOp outputs the camera pose to the volume renderer and the SharedDataSinkOp
+// updates the shared camera pose with the data coming from Holoviz.
+#define WA_CYCLE
+#endif  // (HOLOSCAN_VERSION_MAJOR < 1)
+
+#ifdef WA_CYCLE
 /**
  * Dummy YAML convert function for shared data type
  */
@@ -92,13 +104,20 @@ class SharedDataSinkOp : public Operator {
 };
 
 }  // namespace holoscan::ops
+#endif  // WA_CYCLE
 
 class App : public holoscan::Application {
  public:
-  App(const std::string& render_config_file, const std::string& density_volume_file,
+  App(const std::string& render_config_file, const std::vector<std::string>& render_preset_files,
+      const std::string& write_config_file, const std::string& density_volume_file,
+      const std::optional<float>& density_min, const std::optional<float>& density_max,
       const std::string& mask_volume_file, int count)
       : render_config_file_(render_config_file),
+        render_preset_files_(render_preset_files),
+        write_config_file_(write_config_file),
         density_volume_file_(density_volume_file),
+        density_min_(density_min),
+        density_max_(density_max),
         mask_volume_file_(mask_volume_file),
         count_(count) {}
   App() = delete;
@@ -106,7 +125,9 @@ class App : public holoscan::Application {
   void compose() override {
     using namespace holoscan;
 
-    std::shared_ptr<Resource> allocator = make_resource<UnboundedAllocator>("allocator");
+    const std::shared_ptr<Resource> allocator = make_resource<UnboundedAllocator>("allocator");
+    const std::shared_ptr<CudaStreamPool> cuda_stream_pool =
+        make_resource<CudaStreamPool>("cuda_stream", 0, 0, 0, 1, 5);
 
     auto density_volume_loader =
         make_operator<ops::VolumeLoaderOp>("density_volume_loader",
@@ -125,19 +146,39 @@ class App : public holoscan::Application {
           make_condition<CountCondition>("count-condition", 1));
     }
 
+    std::shared_ptr<ops::JsonLoaderOp> preset_loader;
+    if (!render_preset_files_.empty()) {
+      preset_loader =
+          make_operator<ops::JsonLoaderOp>("preset_loader",
+                                           Arg("file_names", render_preset_files_),
+                                           // the loader will executed only once to load the presets
+                                           make_condition<CountCondition>("count-condition", 1));
+    }
+
+    ArgList volume_renderer_optional_args;
+    if (density_min_.has_value()) {
+      volume_renderer_optional_args.add(Arg("density_min", density_min_.value()));
+    }
+    if (density_max_.has_value()) {
+      volume_renderer_optional_args.add(Arg("density_min", density_max_.value()));
+    }
     auto volume_renderer =
         make_operator<ops::VolumeRendererOp>("volume_renderer",
                                              Arg("config_file", render_config_file_),
+                                             Arg("write_config_file", write_config_file_),
                                              Arg("allocator", allocator),
                                              Arg("alloc_width", 1024u),
-                                             Arg("alloc_height", 768u));
+                                             Arg("alloc_height", 768u),
+                                             Arg("cuda_stream_pool", cuda_stream_pool),
+                                             volume_renderer_optional_args);
 
     auto holoviz = make_operator<ops::HolovizOp>(
         "holoviz",
         // stop application after short duration when testing
         make_condition<CountCondition>(count_),
         Arg("window_title", std::string("Volume Rendering with ClaraViz")),
-        Arg("enable_camera_pose_output", true));
+        Arg("enable_camera_pose_output", true),
+        Arg("cuda_stream_pool", cuda_stream_pool));
 
     // volume data loader
     add_flow(density_volume_loader,
@@ -160,13 +201,23 @@ class App : public holoscan::Application {
                });
     }
 
+    if (preset_loader) {
+      add_flow(preset_loader, volume_renderer, {{"json", "merge_settings"}});
+      // Since the preset_loader is only triggered once we have to set the input condition of
+      // the merge_settings ports to ConditionType::kNone.
+      // Currently, there is no API to set the condition of the receivers so we have to do this after
+      // connecting the ports
+      auto &inputs = volume_renderer->spec()->inputs();
+      auto input = volume_renderer->spec()->inputs().find("merge_settings:0");
+      if (input == inputs.end()) {
+        throw std::runtime_error("Could not find `merge_settings:0` input");
+      }
+      input->second->condition(ConditionType::kNone);
+    }
+
     add_flow(volume_renderer, holoviz, {{"color_buffer_out", "receivers"}});
 
-    // Holoscan currently does not support graphs with cycles. The cycle is created by outputting
-    // the rendered frame from the volume renderer to Holoviz and outputting the camera pose from
-    // Holoviz to the volume renderer. To break the cycle create a shared camera pose. The
-    // SharedDataSourceOp outputs the camera pose to the volume renderer and the SharedDataSinkOp
-    // updates the shared camera pose with the data coming from Holoviz.
+#ifdef WA_CYCLE
     auto camera_pose = std::make_shared<std::array<float, 16>>();
     for (uint32_t row = 0; row < 4; ++row) {
       for (uint32_t col = 0; col < 4; ++col) {
@@ -179,12 +230,19 @@ class App : public holoscan::Application {
     auto shared_sink = make_operator<ops::SharedDataSinkOp<std::shared_ptr<std::array<float, 16>>>>(
         "camera_sink", Arg("shared", camera_pose));
 
-    add_flow(shared_source, volume_renderer, {{"out", "camera_matrix"}});
-    add_flow(holoviz, shared_sink, {{"camera_pose_output", "in"}});
+    add_flow(shared_source, volume_renderer, {{ "out", "camera_pose" }});
+    add_flow(holoviz, shared_sink, {{ "camera_pose_output", "in" }});
+#else   // WA_CYCLE
+    add_flow(holoviz, volume_renderer, {{"camera_pose_output", "camera_pose"}});
+#endif  // WA_CYCLE
   }
 
   const std::string render_config_file_;
+  const std::vector<std::string> render_preset_files_;
+  const std::string write_config_file_;
   const std::string density_volume_file_;
+  const std::optional<float> density_min_;
+  const std::optional<float> density_max_;
   const std::string mask_volume_file_;
   const int count_;
 };
@@ -194,14 +252,22 @@ int main(int argc, char** argv) {
   const std::string density_volume_file_default("../data/volume_rendering/highResCT.mhd");
   const std::string mask_volume_file_default("../data/volume_rendering/smoothmasks.seg.mhd");
 
-  std::string render_config_file;
+  std::string render_config_file(render_config_file_default);
+  std::vector<std::string> render_preset_files;
+  std::string write_config_file;
   std::string density_volume_file;
+  std::optional<float> density_min;
+  std::optional<float> density_max;
   std::string mask_volume_file;
   int count = -1;
 
   struct option long_options[] = {{"help", no_argument, 0, 'h'},
                                   {"config", required_argument, 0, 'c'},
+                                  {"preset", required_argument, 0, 'p'},
+                                  {"write_config", required_argument, 0, 'w'},
                                   {"density", required_argument, 0, 'd'},
+                                  {"density_min", optional_argument, 0, 'i'},
+                                  {"density_max", optional_argument, 0, 'a'},
                                   {"mask", required_argument, 0, 'm'},
                                   {"count", optional_argument, 0, 'n'},
                                   {0, 0, 0, 0}};
@@ -210,23 +276,40 @@ int main(int argc, char** argv) {
   while (true) {
     int option_index = 0;
 
-    const int c = getopt_long(argc, argv, "hc:d:m:n:", long_options, &option_index);
+    const int c = getopt_long(argc, argv, "hc:p:w:d:i:a:m:e", long_options, &option_index);
 
     if (c == -1) { break; }
 
     const std::string argument(optarg ? optarg : "");
     switch (c) {
       case 'h':
-        std::cout << "Holoscan ClaraViz volume renderer."
+        std::cout << "Holoscan ClaraViz volume renderer." << std::endl
                   << "Usage: " << argv[0] << " [options]" << std::endl
                   << "Options:" << std::endl
                   << "  -h, --help                            Display this information" << std::endl
                   << "  -c <FILENAME>, --config <FILENAME>    Name of the renderer JSON "
                      "configuration file to load (default '"
                   << render_config_file_default << "')" << std::endl
+                  << "  -p <FILENAME>, --preset <FILENAME>    Name of the renderer JSON "
+                     "preset file to load. This will be merged into the settings loaded from the "
+                     "configuration file. Multiple presets can be specified."
+                  << std::endl
+                  << "  -w <FILENAME>, --write_config <FILENAME> Name of the renderer JSON "
+                     "configuration file to write to (default '')"
+                  << std::endl
                   << "  -d <FILENAME>, --density <FILENAME>   Name of density volume file to load "
                      "(default '"
                   << density_volume_file_default << "')" << std::endl
+                  << "  -i <MIN>, --density_min <MIN>   Set the minimum of the density element "
+                     "values. If not set this is calculated from the volume data. In practice CT "
+                     "volumes have a minimum value of -1024 which corresponds to the lower value "
+                     "of the Hounsfiled scale range usually used."
+                  << std::endl
+                  << "  -a <MAX>, --density_max <MAX>   Set the maximum of the density element "
+                     "values. If not set this is calculated from the volume data. In practice CT "
+                     "volumes have a maximum value of 3071 which corresponds to the upper value "
+                     "of the Hounsfiled scale range usually used."
+                  << std::endl
                   << "  -m <FILENAME>, --mask <FILENAME>      Name of mask volume file to load "
                      "(default '"
                   << mask_volume_file_default << "')" << std::endl
@@ -239,8 +322,24 @@ int main(int argc, char** argv) {
         render_config_file = argument;
         break;
 
+      case 'p':
+        render_preset_files.push_back(argument);
+        break;
+
+      case 'w':
+        write_config_file = argument;
+        break;
+
       case 'd':
         density_volume_file = argument;
+        break;
+
+      case 'i':
+        density_min = std::stof(argument);
+        break;
+
+      case 'a':
+        density_max = std::stof(argument);
         break;
 
       case 'm':
@@ -259,14 +358,19 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (render_config_file.empty()) { render_config_file = render_config_file_default; }
   if (density_volume_file.empty()) {
     density_volume_file = density_volume_file_default;
     mask_volume_file = mask_volume_file_default;
   }
 
-  auto app = holoscan::make_application<App>(
-      render_config_file, density_volume_file, mask_volume_file, count);
+  auto app = holoscan::make_application<App>(render_config_file,
+                                             render_preset_files,
+                                             write_config_file,
+                                             density_volume_file,
+                                             density_min,
+                                             density_max,
+                                             mask_volume_file,
+                                             count);
   app->run();
 
   holoscan::log_info("Application has finished running.");

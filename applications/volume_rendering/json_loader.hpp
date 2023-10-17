@@ -15,26 +15,24 @@
  * limitations under the License.
  */
 
-#ifndef OPERATORS_VOLUME_LOADER_VOLUME_LOADER
-#define OPERATORS_VOLUME_LOADER_VOLUME_LOADER
+#ifndef APPLICATIONS_VOLUME_RENDERING_JSON_LOADER
+#define APPLICATIONS_VOLUME_RENDERING_JSON_LOADER
 
 #include <holoscan/holoscan.hpp>
 
 namespace holoscan::ops {
 
-class VolumeLoaderOp : public Operator {
+class JsonLoaderOp : public Operator {
  public:
-  HOLOSCAN_OPERATOR_FORWARD_ARGS(VolumeLoaderOp);
+  HOLOSCAN_OPERATOR_FORWARD_ARGS(JsonLoaderOp);
 
-  void initialize() override;
   void setup(OperatorSpec& spec) override;
   void compute(InputContext&, OutputContext& op_output, ExecutionContext&) override;
 
  private:
-  Parameter<std::string> file_name_;
-  Parameter<std::shared_ptr<Allocator>> allocator_;
+  Parameter<std::vector<std::string>> file_names_;
 };
 
 }  // namespace holoscan::ops
 
-#endif /* OPERATORS_VOLUME_LOADER_VOLUME_LOADER */
+#endif /* APPLICATIONS_VOLUME_RENDERING_JSON_LOADER */

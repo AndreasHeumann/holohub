@@ -27,7 +27,6 @@ class VolumeRendererOp : public Operator {
 
   void initialize() override;
   void start() override;
-  void stop() override;
   void setup(OperatorSpec& spec) override;
   void compute(InputContext& input, OutputContext& output, ExecutionContext& context) override;
 

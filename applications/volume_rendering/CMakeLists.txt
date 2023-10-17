@@ -18,7 +18,10 @@ project(volume_rendering)
 find_package(holoscan 0.6 REQUIRED CONFIG
              PATHS "/opt/nvidia/holoscan" "/workspace/holoscan-sdk/install")
 
+find_package(clara_viz_renderer REQUIRED)
+
 add_executable(volume_rendering
+  json_loader.cpp
   volume_rendering.cpp
 )
 
@@ -27,6 +30,7 @@ target_link_libraries(volume_rendering
   holoscan::ops::volume_loader
   holoscan::ops::volume_renderer
   holoscan::ops::holoviz
+  nlohmann_json::nlohmann_json
 )
 
 # Download the volume rendering sample data
