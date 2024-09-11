@@ -69,7 +69,7 @@ class App : public holoscan::Application {
     int width_preprocessor = 1264;
     int height_preprocessor = 1080;
     uint64_t preprocessor_block_size = width_preprocessor * height_preprocessor * n_channels * bpp;
-    uint64_t preprocessor_num_blocks = 2;
+    uint64_t preprocessor_num_blocks = 3;
     auto segmentation_preprocessor = make_operator<ops::FormatConverterOp>(
         "segmentation_preprocessor",
         from_config("segmentation_preprocessor"),
@@ -96,7 +96,7 @@ class App : public holoscan::Application {
             make_resource<BlockMemoryPool>("pool", 1, inference_block_size, inference_num_blocks));
 
     const uint64_t postprocessor_block_size = width_inference * height_inference;
-    const uint64_t postprocessor_num_blocks = 2;
+    const uint64_t postprocessor_num_blocks = 1;
     auto segmentation_postprocessor = make_operator<ops::SegmentationPostprocessorOp>(
         "segmentation_postprocessor",
         from_config("segmentation_postprocessor"),

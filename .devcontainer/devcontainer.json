@@ -32,7 +32,8 @@
         }
     },
     "runArgs": [
-        "<env>"
+        //"<env>",
+        "--network=host"
     ],
     "containerEnv": {
         // X11 support
