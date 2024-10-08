@@ -29,6 +29,9 @@
 
 #include <holoscan/holoscan.hpp>
 #include <holoscan/operators/holoviz/holoviz.hpp>
+{%- if cookiecutter.example == "UI" %}
+#include <holoscan/operators/holoviz/imgui/imgui.h>
+{%- endif %}
 
 {%- if example.print_fps %}
 #include <chrono>
@@ -296,6 +299,9 @@ class App : public holoscan::Application {
 {%- endif %}
 {%- if cookiecutter.example == "vsync" %}
         // enable synchronization to vertical blank
+        Arg("vsync", true),
+{%- endif %}
+{%- if cookiecutter.example == "UI" %}
         Arg("vsync", true),
 {%- endif %}
         Arg("window_title", std::string("{{ cookiecutter.project_name }}")),
