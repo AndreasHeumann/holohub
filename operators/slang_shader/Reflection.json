@@ -1,0 +1,96 @@
+Reflection: {
+    "parameters": [
+        {
+            "name": "input_buffer",
+            "userAttribs": [
+                {
+                    "name": "holoscan_input",
+                    "arguments": [
+                        "input_buffer"
+                    ]
+                }
+            ],
+            "binding": {"kind": "uniform", "offset": 0, "size": 16},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "resultType": {
+                    "kind": "scalar",
+                    "scalarType": "int32"
+                }
+            }
+        },
+        {
+            "name": "output_buffer",
+            "userAttribs": [
+                {
+                    "name": "holoscan_output",
+                    "arguments": [
+                        "output_buffer"
+                    ]
+                },
+                {
+                    "name": "holoscan_size_of",
+                    "arguments": [
+                        "input_buffer"
+                    ]
+                }
+            ],
+            "binding": {"kind": "uniform", "offset": 16, "size": 16},
+            "type": {
+                "kind": "resource",
+                "baseShape": "structuredBuffer",
+                "access": "readWrite",
+                "resultType": {
+                    "kind": "scalar",
+                    "scalarType": "int32"
+                }
+            }
+        },
+        {
+            "name": "parameter",
+            "userAttribs": [
+                {
+                    "name": "holoscan_parameter",
+                    "arguments": [
+                        "parameter"
+                    ]
+                }
+            ],
+            "binding": {"kind": "uniform", "offset": 32, "size": 4},
+            "type": {
+                "kind": "scalar",
+                "scalarType": "int32"
+            }
+        }
+    ],
+    "entryPoints": [
+        {
+            "name": "main_dynamic",
+            "stage": "compute",
+            "parameters": [
+                {
+                    "name": "gid",
+                    "semanticName": "SV_DISPATCHTHREADID",
+                    "type": {
+                        "kind": "vector",
+                        "elementCount": 3,
+                        "elementType": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        }
+                    }
+                }
+            ],
+            "threadGroupSize": [1, 1, 1],
+            "userAttribs": [
+                {
+                    "name": "holoscan_grid_size_of",
+                    "arguments": [
+                        "input_buffer.Count"
+                    ]
+                }
+            ]
+        }
+    ]
+}
