@@ -40,17 +40,17 @@ from holoscan.operators import SlangShaderOp
 shader_source = """
 import holoscan
 
-[holoscan_input("input_data")]
+[holoscan::input("input_data")]
 StructuredBuffer<float> input_buffer;
 
-[holoscan_output("output_data")]
+[holoscan::output("output_data")]
 RWStructuredBuffer<float> output_buffer;
 
-[holoscan_parameter("scale_factor")]
+[holoscan::parameter("scale_factor")]
 float scale;
 
 [numthreads(256, 1, 1)]
-[holoscan_grid_size_of("input_data")]
+[holoscan::invocations::size_of("input_data")]
 void main(uint3 tid : SV_DispatchThreadID) {
     output_buffer[tid.x] = input_buffer[tid.x] * scale;
 }
@@ -71,19 +71,22 @@ The SlangShaderOp uses special attributes to define how shader parameters intera
 
 #### Input/Output Attributes
 
-- `[holoscan_input("port_name")]`: Marks a structured buffer as an input port
-- `[holoscan_output("port_name")]`: Marks a structured buffer as an output port
-- `[holoscan_alloc_size_of("port_name")]`: Specifies allocation size based on input port
+- `[holoscan::input("port_name")]`: Marks a structured buffer as an input port
+- `[holoscan::output("port_name")]`: Marks a structured buffer as an output port
+- `[holoscan::alloc::size_of("port_name")]`: Specifies allocation size based on input port
+- `[holoscan::alloc(x, y, z)]`: Specifies allocation size
+- `[holoscan::zeros()]`: Initializes a buffer to zero
 
 #### Parameter Attributes
 
-- `[holoscan_parameter("param_name")]`: Marks a scalar as a configurable parameter
-- `[holoscan_size_of("port_name")]`: Provides size information from input port
+- `[holoscan::parameter("param_name")]`: Marks a scalar as a configurable parameter
+- `[holoscan::size_of("port_name")]`: Provides size information from input port
+- `[holoscan::strides_of("port_name")]`: Provides stride information from input port
 
-#### Compute Grid Attributes
+#### Compute Invocations
 
-- `[holoscan_grid_size_of("port_name")]`: Sets grid size based on input tensor dimensions
-- `[holoscan_grid_size(x, y, z)]`: Sets fixed grid dimensions
+- `[holoscan::invocations::size_of("port_name")]`: Sets invocations based on input tensor dimensions
+- `[holoscan::invocations(x, y, z)]`: Sets fixed invocations
 
 ### Supported Data Types
 
@@ -102,20 +105,20 @@ The SlangShaderOp uses special attributes to define how shader parameters intera
 import holoscan
 
 // Simple image processing shader
-[holoscan_input("input_image")]
+[holoscan::input("input_image")]
 StructuredBuffer<float4> input_image;
 
-[holoscan_output("output_image")]
+[holoscan::output("output_image")]
 RWStructuredBuffer<float4> output_image;
 
-[holoscan_parameter("brightness")]
+[holoscan::parameter("brightness")]
 float brightness;
 
-[holoscan_size_of("input_image")]
+[holoscan::size_of("input_image")]
 int3 image_size;
 
 [numthreads(16, 16, 1)]
-[holoscan_grid_size_of("input_image")]
+[holoscan::invocations::size_of("input_image")]
 void main(uint3 tid : SV_DispatchThreadID) {
     uint index = tid.y * image_size.x + tid.x;
     float4 pixel = input_image[index];
@@ -172,8 +175,11 @@ The SlangShaderOp consists of several key components:
 - **`CommandOutput`**: Handles output port data emission
 - **`CommandParameter`**: Manages scalar parameter binding
 - **`CommandSizeOf`**: Provides size information to shaders
-- **`CommandAllocSizeOf`**: Handles dynamic allocation sizing
+- **`CommandStrideOf`**: Provides stride information to shaders
+- **`CommandAlloc`**: Handles resource allocation
 - **`CommandLaunch`**: Executes CUDA kernels
+- **`CommandZeros`**: Initializes a buffer with zeros
+
 
 ## Error Handling
 
@@ -214,6 +220,16 @@ Enable debug logging to see detailed execution information:
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
+```
+
+## Testing
+
+The SlangShaderOp includes comprehensive testing to ensure reliability and correctness across different use cases and platforms.
+
+### Running Tests
+
+```bash
+./holohub test slang_simple
 ```
 
 ## Contributing
