@@ -18,8 +18,6 @@
 #ifndef PYHOLOHUB_OPERATORS_SLANG_SHADER_PYDOC_HPP
 #define PYHOLOHUB_OPERATORS_SLANG_SHADER_PYDOC_HPP
 
-#include <string>
-
 #include "macros.hpp"
 
 namespace holoscan::doc {
@@ -37,14 +35,16 @@ Parameters
 ----------
 fragment : Fragment
     The fragment that the operator belongs to.
-allocator: ``holoscan.resources.Allocator``
-    Allocator used to allocate the volume data
+name : str, optional
+    The name of the operator.
 shader_source : str, optional
     Slang shader source code
 shader_source_file : str, optional
     Slang shader source file
-name : str, optional
-    The name of the operator.
+preprocessor_macros: dict, optional
+    Preprocessor macros to be used in the shader
+allocator: ``holoscan.resources.Allocator``
+    Allocator used to allocate the data
 )doc")
 
 PYDOC(initialize, R"doc(

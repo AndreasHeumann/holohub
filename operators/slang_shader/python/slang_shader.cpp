@@ -17,8 +17,8 @@
 
 #include "../../operator_util.hpp"
 
-#include "../slang_shader_op.hpp"
-#include "./slang_shader_op_pydoc.hpp"
+#include <slang_shader/slang_shader.hpp>
+#include "slang_shader_pydoc.hpp"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>  // for unordered_map -> dict, etc.
@@ -54,11 +54,14 @@ class PySlangShaderOp : public SlangShaderOp {
   using SlangShaderOp::SlangShaderOp;
 
   // Define a constructor that fully initializes the object.
-  PySlangShaderOp(Fragment* fragment, const py::args& args, const std::string& shader_source,
-                  const std::string& shader_source_file, const std::string& name = "slang_shader",
+  PySlangShaderOp(Fragment* fragment, const py::args& args,
+                  const std::string& name = "slang_shader", const std::string& shader_source = "",
+                  const std::string& shader_source_file = "",
+                  SlangShaderOp::PreprocessorMacros preprocessor_macros = {},
                   std::optional<std::shared_ptr<Allocator>> allocator = std::nullopt)
       : SlangShaderOp(ArgList{Arg{"shader_source", shader_source},
-                              Arg{"shader_source_file", shader_source_file}}) {
+                              Arg{"shader_source_file", shader_source_file},
+                              Arg{"preprocessor_macros", preprocessor_macros}}) {
     if (allocator.has_value()) {
       this->add_arg(Arg{"allocator", allocator.value()});
     }
@@ -84,11 +87,13 @@ PYBIND11_MODULE(_slang_shader, m) {
                     const std::string&,
                     const std::string&,
                     const std::string&,
+                    const SlangShaderOp::PreprocessorMacros&,
                     std::optional<std::shared_ptr<Allocator>>>(),
            "fragment"_a,
+           "name"_a = "slang_shader"s,
            "shader_source"_a = "",
            "shader_source_file"_a = "",
-           "name"_a = "slang_shader"s,
+           "preprocessor_macros"_a = SlangShaderOp::PreprocessorMacros(),
            "allocator"_a = py::none(),
            doc::SlangShaderOp::doc_SlangShaderOp_python)
       .def("setup", &SlangShaderOp::setup, "spec"_a, doc::SlangShaderOp::doc_setup);

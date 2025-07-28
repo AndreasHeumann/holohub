@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-#ifndef SLANG_SHADER_OP_HPP
-#define SLANG_SHADER_OP_HPP
+#ifndef SLANG_SHADER_HPP
+#define SLANG_SHADER_HPP
 
 #include <memory>
 #include <string>
@@ -40,9 +40,12 @@ class SlangShaderOp : public Operator {
   void compute(InputContext& op_input, [[maybe_unused]] OutputContext& op_output,
                [[maybe_unused]] ExecutionContext& context) override;
 
+  using PreprocessorMacros = std::map<std::string, std::string>;
+
  private:
   Parameter<std::string> shader_source_;
   Parameter<std::string> shader_source_file_;
+  Parameter<PreprocessorMacros> preprocessor_macros_;
   Parameter<std::shared_ptr<Allocator>> allocator_;
 
   // Forward declaration of implementation
@@ -52,4 +55,4 @@ class SlangShaderOp : public Operator {
 
 }  // namespace holoscan::ops
 
-#endif /* SLANG_SHADER_OP_HPP */
+#endif /* SLANG_SHADER_HPP */

@@ -1,17 +1,14 @@
 {
-	"operator": {
-		"name": "SlangShaderOp",
-		"description": "Operator for executing Slang shaders.",
+	"application": {
+		"name": "Slang Simple Compute Kernel Example",
+		"description": "Example for using the Slang shading language operator for simple compute kernels",
 		"authors": [
 			{
 				"name": "Holoscan Team",
 				"affiliation": "NVIDIA"
 			}
 		],
-		"language": [
-			"C++",
-			"Python"
-		],
+		"language": "Python",
 		"version": "0.1.0",
 		"changelog": {
 			"0.1.0": "Initial Release"
@@ -38,6 +35,10 @@
 			"cuda"
 		],
 		"ranking": 1,
-		"requirements": {}
+		"requirements": {},
+		"run": {
+			"command": "python3 <holohub_app_source>/slang_simple.py",
+			"workdir": "holohub_app_source"
+		}
 	}
 }

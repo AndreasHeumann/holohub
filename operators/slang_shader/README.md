@@ -163,7 +163,7 @@ void main(uint3 tid : SV_DispatchThreadID) {
 ### C++ Usage
 
 ```cpp
-#include <slang_shader_op.hpp>
+#include <slang_shader/slang_shader.hpp>
 
 // Create the operator with shader source from a string
 std::string shader_source_string = R"

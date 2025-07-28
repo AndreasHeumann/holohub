@@ -15,13 +15,32 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-project(slang_shader)
+project(gamma_correction)
 
 find_package(holoscan 3.3.0 REQUIRED CONFIG
              PATHS "/opt/nvidia/holoscan" "/workspace/holoscan-sdk/install")
 
-add_subdirectory(cpp)
+# Add gamma_correction operator
+add_library(gamma_correction INTERFACE)
 
-if(HOLOHUB_BUILD_PYTHON)
-    add_subdirectory(python)
+add_library(holoscan::ops::gamma_correction ALIAS gamma_correction)
+
+target_link_libraries(gamma_correction
+  INTERFACE
+    holoscan::ops::slang_shader
+)
+
+target_include_directories(gamma_correction INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+install(TARGETS gamma_correction
+  COMPONENT holoscan-ops
+)
+
+#if(HOLOHUB_BUILD_PYTHON)
+#    add_subdirectory(python)
+#endif()
+
+# Add test subdirectory if testing is enabled
+if(BUILD_TESTING)
+    add_subdirectory(test)
 endif()

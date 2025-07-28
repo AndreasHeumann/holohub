@@ -24,9 +24,9 @@
 
 #include <holoscan/holoscan.hpp>
 
-#include "slang_shader_op.hpp"
+#include <slang_shader/slang_shader.hpp>
 
-#include "cuda_utils.hpp"
+#include "../cuda_utils.hpp"
 
 using namespace holoscan::ops;
 
@@ -95,6 +95,8 @@ class SourceOp : public Operator {
   SourceOp() = default;
 
   void setup(OperatorSpec& spec) override {
+    spec.param(
+        shape_, "shape", "Shape of the output buffer.", "Shape of the output buffer.");
     spec.param(allocator_,
                "allocator",
                "Allocator for output buffers.",
@@ -120,16 +122,19 @@ class SourceOp : public Operator {
     // Get Handle to underlying nvidia::gxf::Allocator from std::shared_ptr<Allocator>
     auto gxf_allocator = nvidia::gxf::Handle<nvidia::gxf::Allocator>::Create(
         context.context(), allocator_.get()->gxf_cid());
-    tensor->reshape<int>(
-        nvidia::gxf::Shape({1, 1}), nvidia::gxf::MemoryStorageType::kHost, gxf_allocator.value());
+    tensor->reshape<int>(nvidia::gxf::Shape(shape_.get()),
+                         nvidia::gxf::MemoryStorageType::kHost,
+                         gxf_allocator.value());
 
-    int value = 42;
-    std::memcpy(tensor->pointer(), &value, sizeof(value));
+    std::vector<int> value(tensor->element_count());
+    for (int i = 0; i < value.size(); i++) { value[i] = 42 + i; }
+    std::memcpy(tensor->pointer(), value.data(), value.size() * sizeof(int));
 
     op_output.emit(entity, "output");
   };
 
  private:
+  Parameter<std::vector<int32_t>> shape_;
   Parameter<std::shared_ptr<Allocator>> allocator_;
 };
 
@@ -189,16 +194,41 @@ class SinkOp : public Operator {
 
   SinkOp() = default;
 
-  void setup(OperatorSpec& spec) override { spec.input<gxf::Entity>("input"); }
+  void setup(OperatorSpec& spec) override {
+    spec.input<gxf::Entity>("input");
+    spec.param(expected_shape_,
+               "expected_shape",
+               "Expected shape of the input buffer.",
+               "Expected shape of the input buffer.");
+    spec.param(print_output_,
+               "print_output",
+               "Print the output buffer.",
+               "Print the output buffer.",
+               false);
+  }
 
   void compute([[maybe_unused]] InputContext& op_input, OutputContext& op_output,
                [[maybe_unused]] ExecutionContext& context) override {
     auto tensor = op_input.receive<std::shared_ptr<holoscan::Tensor>>("input").value();
-    EXPECT_GE(tensor->nbytes(), sizeof(int));
-    int value = 0;
-    CUDA_CALL(cudaMemcpy(&value, tensor->data(), sizeof(value), cudaMemcpyDefault));
-    std::cout << value << std::endl;
+
+    std::vector<int32_t> current_shape;
+    std::vector<int64_t> tensor_shape = tensor->shape();
+    std::transform(tensor_shape.begin(), tensor_shape.end(), std::back_inserter(current_shape),
+                   [](int64_t value) { return static_cast<int32_t>(value); });
+    EXPECT_EQ(current_shape, expected_shape_.get());
+
+    if (print_output_.get()) {
+      std::vector<int> values(tensor->size());
+      CUDA_CALL(
+          cudaMemcpy(values.data(), tensor->data(), tensor->size() * sizeof(int), cudaMemcpyDefault));
+
+      std::cout << fmt::format("{}", fmt::join(values, ", ")) << std::endl;
+    }
   };
+
+ private:
+  Parameter<std::vector<int32_t>> expected_shape_;
+  Parameter<bool> print_output_;
 };
 
 }  // namespace holoscan::ops
@@ -216,11 +246,20 @@ class SlangShaderApp : public holoscan::Application {
   }
   SlangShaderApp() = delete;
 
+  /** Sets the shape of the input tensor */
+  void set_input_shape(const std::vector<int32_t>& shape) { input_shape_ = shape; }
+
   /** Enables source operator that generates test data (tensor with value 42) */
   void add_source_op(const std::string& input = "input") { source_ops_.push_back(input); }
 
   /** Enables source operator that generates test data (video buffer with value 42) */
   void add_video_buffer_source_op() { add_video_buffer_source_op_ = true; }
+
+  /** Sets the shape of the output tensor */
+  void set_output_shape(const std::vector<int32_t>& shape) { output_shape_ = shape; }
+
+  /** Enables sink operator that prints the output buffer */
+  void add_print_output_op() { print_output_op_ = true; }
 
   /** Enables sink operator that validates SlangShaderOp output */
   void add_sink_op(const std::string& input = "input") { sink_ops_.push_back(input); }
@@ -236,11 +275,12 @@ class SlangShaderApp : public holoscan::Application {
     auto op = make_operator<SlangShaderOp>(
         "slang_shader_op", args_, make_condition<holoscan::CountCondition>(1));
     if (source_ops_.size() == 1) {
-      auto source_op = make_operator<SourceOp>(fmt::format("source_op"));
+      auto source_op = make_operator<SourceOp>("source_op", holoscan::Arg("shape", input_shape_));
       add_flow(source_op, op);
     } else {
       for (const auto& input : source_ops_) {
-        auto source_op = make_operator<SourceOp>(fmt::format("source_op_{}", input));
+        auto source_op = make_operator<SourceOp>(fmt::format("source_op_{}", input),
+                                                 holoscan::Arg("shape", input_shape_));
         add_flow(source_op, op, {{"output", input}});
       }
     }
@@ -249,11 +289,12 @@ class SlangShaderApp : public holoscan::Application {
       add_flow(source_op, op);
     }
     if (sink_ops_.size() == 1) {
-      auto sink_op = make_operator<SinkOp>(fmt::format("sink_op"));
+      auto sink_op = make_operator<SinkOp>("sink_op", holoscan::Arg("expected_shape", output_shape_));
       add_flow(op, sink_op);
     } else {
       for (const auto& output : sink_ops_) {
-        auto sink_op = make_operator<SinkOp>(fmt::format("sink_op_{}", output));
+        auto sink_op = make_operator<SinkOp>(fmt::format("sink_op_{}", output),
+                                             holoscan::Arg("expected_shape", output_shape_));
         add_flow(op, sink_op, {{output, "input"}});
       }
     }
@@ -288,6 +329,9 @@ class SlangShaderApp : public holoscan::Application {
   bool add_video_buffer_source_op_ =
       false;                           ///< Flag to enable video buffer source operator in pipeline
   std::vector<std::string> sink_ops_;  ///< Flag to enable sink operator in pipeline
+  std::vector<int32_t> input_shape_ = {1};  ///< Shape of the input tensor
+  std::vector<int32_t> output_shape_ = {1};  ///< Shape of the output tensor
+  bool print_output_op_ = false;  ///< Flag to enable print output operator in pipeline
 };
 
 // Test operator execution
@@ -357,6 +401,31 @@ TEST(SlangShaderAppTest, InputTensor) {
   application->add_source_op();
 
   application->check_output("42");
+}
+
+TEST(SlangShaderAppTest, InputTensorMultiDimensional) {
+  const std::string shader_source = R"(
+    import holoscan;
+
+    [holoscan::input("input_buffer")]
+    StructuredBuffer<int> input_buffer;
+
+    [holoscan::size_of("input_buffer")]
+    uint3 size;
+
+    [shader("compute")]
+    void compute(uint3 gid : SV_DispatchThreadID) {
+      printf("%d %d %d\n", size.x, size.y, size.z);
+    }
+  )";
+
+  auto application = holoscan::make_application<SlangShaderApp>(shader_source);
+  application->set_input_shape({4, 3, 2, 1});
+  application->add_source_op();
+
+  // shape is DHWC (depth, height, width, channels) which is 4, 3, 2, 1
+  // size is W, H, D (width, height, depth) which is 2, 3, 4
+  application->check_output("2 3 4\n");
 }
 
 TEST(SlangShaderAppTest, InputMultipleTensors) {
@@ -513,10 +582,12 @@ TEST(SlangShaderAppTest, OutputAllocSizeOfWithSwizzle) {
   )";
 
   auto application = holoscan::make_application<SlangShaderApp>(shader_source);
+  application->set_input_shape({1, 1});
   application->add_source_op();
+  application->set_output_shape({3, 1, 2, 1});
   application->add_sink_op();
 
-  application->check_output("2 1 3\n42\n");
+  application->check_output("2 1 3\n42, 0, 0, 0, 0, 0\n");
 }
 
 TEST(SlangShaderAppTest, ParameterSizeOf) {
@@ -524,7 +595,7 @@ TEST(SlangShaderAppTest, ParameterSizeOf) {
     import holoscan;
 
     [holoscan::output("output_buffer")]
-    [holoscan::alloc(4, 5, 6)]
+    [holoscan::alloc(2, 3, 4)]
     RWStructuredBuffer<int3> output_buffer;
 
     [holoscan::size_of("output_buffer")]
@@ -537,9 +608,10 @@ TEST(SlangShaderAppTest, ParameterSizeOf) {
   )";
 
   auto application = holoscan::make_application<SlangShaderApp>(shader_source);
+  application->set_output_shape({4, 3, 2, 3});
   application->add_sink_op();
 
-  application->check_output("4 5 6\n0\n");
+  application->check_output("4 3 2\n");
 }
 
 TEST(SlangShaderAppTest, ParameterSizeOfError) {
@@ -619,7 +691,7 @@ TEST(SlangShaderAppTest, ParameterStridesOf) {
   auto application = holoscan::make_application<SlangShaderApp>(shader_source);
   application->add_sink_op();
 
-  application->check_output("12 48 240\n0\n");
+  application->check_output("12 48 240\n");
 }
 
 TEST(SlangShaderAppTest, ParameterStridesOfVideoBuffer) {
@@ -752,7 +824,7 @@ TEST(SlangShaderAppTest, InvocationsSizeOf) {
   auto application = holoscan::make_application<SlangShaderApp>(shader_source);
   application->add_sink_op();
 
-  application->check_output("4 3 2\n0\n");
+  application->check_output("4 3 2\n");
 }
 
 TEST(SlangShaderAppTest, InvocationsSizeOfWithSwizzle) {
@@ -816,4 +888,48 @@ TEST(SlangShaderAppTest, InvocationsSizeOfVideoBuffer) {
 
   // 757869354 is the value of the first pixel in the input video buffer (42, 43, 44, 45)
   application->check_output("2 3 1\n757869354\n");
+}
+
+// Test that the output buffer is the same as the input buffer
+TEST(SlangShaderAppTest, Inplace) {
+  const std::string shader_source = R"r(
+    import holoscan;
+
+    [holoscan::input("input_buffer")]
+    [holoscan::output("output_buffer")]
+    RWStructuredBuffer<uint8_t4> buffer;
+
+    [shader("compute")]
+    [holoscan::invocations::size_of("input_buffer")]
+    void compute(uint3 gid : SV_DispatchThreadID) {
+      buffer[gid.x] *= 2;
+    }
+  )r";
+
+  auto application = holoscan::make_application<SlangShaderApp>(shader_source);
+  application->add_source_op();
+  application->add_sink_op();
+
+  application->check_output("84\n");
+}
+
+TEST(SlangShaderAppTest, Zeros) {
+  const std::string shader_source = R"r(
+    import holoscan;
+
+    [holoscan::input("input_buffer")]
+    [holoscan::zeros()]
+    RWStructuredBuffer<int> buffer;
+
+    [shader("compute")]
+    [holoscan::invocations::size_of("input_buffer")]
+    void compute(uint3 gid : SV_DispatchThreadID) {
+      printf("%d\n", buffer[gid.x]);
+    }
+  )r";
+
+  auto application = holoscan::make_application<SlangShaderApp>(shader_source);
+  application->add_source_op();
+
+  application->check_output("0\n");
 }

@@ -1,0 +1,2 @@
+# Gamma Correction Operator
+
